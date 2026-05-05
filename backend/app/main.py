@@ -1,0 +1,169 @@
+"""Main FastAPI application."""
+from fastapi import FastAPI, WebSocket, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+import logging
+import base64
+import io
+
+from app.database import init_db, AsyncSessionLocal, FaceDetectionROI
+from app.schemas import ROIListResponse, ROIData
+from app.face_detection import FaceDetector
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize face detector (reuse across requests)
+face_detector = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown."""
+    global face_detector
+    
+    # Startup
+    logger.info("Initializing database...")
+    await init_db()
+    logger.info("Database initialized.")
+    
+    logger.info("Initializing face detector...")
+    face_detector = FaceDetector()
+    logger.info("Face detector ready.")
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down...")
+    if face_detector:
+        del face_detector
+
+
+app = FastAPI(
+    title="Mega AI - Real-Time Face Detection",
+    description="Real-time face detection API with WebSocket streaming",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+async def get_db():
+    """Get database session."""
+    async with AsyncSessionLocal() as session:
+        yield session
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "service": "mega-ai-face-detection"}
+
+
+@app.websocket("/ws/stream")
+async def websocket_stream(websocket: WebSocket):
+    """WebSocket endpoint for real-time frame processing."""
+    await websocket.accept()
+    logger.info("WebSocket client connected.")
+    
+    db: AsyncSession = AsyncSessionLocal()
+    
+    try:
+        while True:
+            # Receive frame as base64 string
+            data = await websocket.receive_text()
+            
+            try:
+                # Decode base64 frame
+                frame_bytes = base64.b64decode(data)
+                
+                # Process frame with face detection
+                processed_frame_b64, roi_data = face_detector.detect_and_draw(frame_bytes)
+                
+                # Save ROI to database if face detected
+                if roi_data:
+                    new_roi = FaceDetectionROI(
+                        x_min=roi_data["x_min"],
+                        y_min=roi_data["y_min"],
+                        x_max=roi_data["x_max"],
+                        y_max=roi_data["y_max"]
+                    )
+                    db.add(new_roi)
+                    await db.commit()
+                
+                # Send processed frame back
+                response = {
+                    "frame": processed_frame_b64,
+                    "roi": roi_data
+                }
+                await websocket.send_json(response)
+                
+            except Exception as e:
+                logger.error(f"Error processing frame: {e}")
+                await websocket.send_json({
+                    "error": str(e),
+                    "frame": None,
+                    "roi": None
+                })
+    
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    
+    finally:
+        await db.close()
+        await websocket.close()
+        logger.info("WebSocket client disconnected.")
+
+
+@app.get("/data/roi", response_model=ROIListResponse)
+async def get_roi_data(db: AsyncSession = Depends(get_db)):
+    """
+    GET endpoint to retrieve all historical face detection events.
+    
+    Returns:
+        List of all stored ROI detections with timestamps.
+    """
+    try:
+        # Query all ROI records ordered by timestamp descending
+        result = await db.execute(
+            select(FaceDetectionROI).order_by(FaceDetectionROI.timestamp.desc())
+        )
+        roi_records = result.scalars().all()
+        
+        # Convert to response schema
+        roi_data = [ROIData.from_attributes(record) for record in roi_records]
+        
+        return ROIListResponse(
+            data=roi_data,
+            count=len(roi_data)
+        )
+    
+    except Exception as e:
+        logger.error(f"Error retrieving ROI data: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve ROI data")
+
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "message": "Mega AI - Real-Time Face Detection API",
+        "endpoints": {
+            "health": "/health",
+            "websocket": "/ws/stream",
+            "roi_data": "/data/roi",
+            "docs": "/docs"
+        }
+    }

@@ -83,8 +83,22 @@ async def websocket_stream(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
 
+            # Validate input data
+            if not data:
+                logger.warning("Received empty data from WebSocket")
+                await websocket.send_json({
+                    "error": "Empty data received",
+                    "frame": None,
+                    "roi": None
+                })
+                continue
+
             try:
+                # Validate base64 format
                 frame_bytes = base64.b64decode(data)
+                if len(frame_bytes) == 0:
+                    raise ValueError("Decoded frame is empty")
+
                 processed_frame_b64, roi_data = face_detector.detect_and_draw(frame_bytes)
 
                 if roi_data:
@@ -100,12 +114,27 @@ async def websocket_stream(websocket: WebSocket):
                     except Exception as e:
                         await db.rollback()
                         logger.error(f"DB commit failed: {e}")
+                        # Continue processing even if DB fails
 
                 await websocket.send_json({
                     "frame": processed_frame_b64,
                     "roi": roi_data
                 })
 
+            except base64.binascii.Error as e:
+                logger.error(f"Invalid base64 data: {e}")
+                await websocket.send_json({
+                    "error": "Invalid base64 data",
+                    "frame": None,
+                    "roi": None
+                })
+            except ValueError as e:
+                logger.error(f"Invalid frame data: {e}")
+                await websocket.send_json({
+                    "error": f"Invalid frame data: {str(e)}",
+                    "frame": None,
+                    "roi": None
+                })
             except Exception as e:
                 logger.error(f"Error processing frame: {e}")
                 # Only send error if connection is still open

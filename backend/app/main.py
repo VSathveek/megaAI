@@ -74,25 +74,19 @@ async def health_check():
 
 @app.websocket("/ws/stream")
 async def websocket_stream(websocket: WebSocket):
-    """WebSocket endpoint for real-time frame processing."""
     await websocket.accept()
     logger.info("WebSocket client connected.")
-    
+
     db: AsyncSession = AsyncSessionLocal()
-    
+
     try:
         while True:
-            # Receive frame as base64 string
             data = await websocket.receive_text()
-            
+
             try:
-                # Decode base64 frame
                 frame_bytes = base64.b64decode(data)
-                
-                # Process frame with face detection
                 processed_frame_b64, roi_data = face_detector.detect_and_draw(frame_bytes)
-                
-                # Save ROI to database if face detected
+
                 if roi_data:
                     new_roi = FaceDetectionROI(
                         x_min=roi_data["x_min"],
@@ -100,30 +94,43 @@ async def websocket_stream(websocket: WebSocket):
                         x_max=roi_data["x_max"],
                         y_max=roi_data["y_max"]
                     )
-                    db.add(new_roi)
-                    await db.commit()
-                
-                # Send processed frame back
-                response = {
+                    try:
+                        db.add(new_roi)
+                        await db.commit()
+                    except Exception as e:
+                        await db.rollback()
+                        logger.error(f"DB commit failed: {e}")
+
+                await websocket.send_json({
                     "frame": processed_frame_b64,
                     "roi": roi_data
-                }
-                await websocket.send_json(response)
-                
+                })
+
             except Exception as e:
                 logger.error(f"Error processing frame: {e}")
-                await websocket.send_json({
-                    "error": str(e),
-                    "frame": None,
-                    "roi": None
-                })
-    
+                # Only send error if connection is still open
+                if websocket.client_state.value == 1:  # CONNECTED
+                    await websocket.send_json({
+                        "error": str(e),
+                        "frame": None,
+                        "roi": None
+                    })
+
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    
+        # WebSocketDisconnect is normal — don't log as error
+        from starlette.websockets import WebSocketDisconnect
+        if not isinstance(e, WebSocketDisconnect):
+            logger.error(f"WebSocket error: {e}")
+
     finally:
         await db.close()
-        await websocket.close()
+        # Only close if client hasn't already disconnected
+        from starlette.websockets import WebSocketState
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            try:
+                await websocket.close()
+            except RuntimeError:
+                pass  # Already closed, ignore
         logger.info("WebSocket client disconnected.")
 
 
@@ -143,7 +150,8 @@ async def get_roi_data(db: AsyncSession = Depends(get_db)):
         roi_records = result.scalars().all()
         
         # Convert to response schema
-        roi_data = [ROIData.from_attributes(record) for record in roi_records]
+        roi_data = [ROIData.model_validate(record) for record in roi_records]
+
         
         return ROIListResponse(
             data=roi_data,

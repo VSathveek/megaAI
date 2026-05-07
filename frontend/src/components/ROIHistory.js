@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 function ROIHistory({ roiData }) {
   const formatTimestamp = (timestamp) => {
@@ -10,29 +10,91 @@ function ROIHistory({ roiData }) {
   };
 
   return (
-    <div className="roi-list">
+    <div>
       {roiData && roiData.length > 0 ? (
         roiData.map((roi, index) => (
-          <div key={roi.id} className="roi-item">
-            <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+          <div
+            key={roi.id}
+            style={{
+              padding: "18px",
+              borderBottom: "1px solid #1f1f1f",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "14px",
+                fontWeight: "600",
+                marginBottom: "14px",
+                color: "#ffffff",
+              }}
+            >
               Detection #{roiData.length - index}
             </div>
-            <div className="roi-coordinates">
-              <div>X-Min: {formatCoordinate(roi.x_min)}</div>
-              <div>Y-Min: {formatCoordinate(roi.y_min)}</div>
-              <div>X-Max: {formatCoordinate(roi.x_max)}</div>
-              <div>Y-Max: {formatCoordinate(roi.y_max)}</div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "10px",
+                fontSize: "13px",
+                color: "#a1a1a1",
+              }}
+            >
+              <div>
+                X-Min: {formatCoordinate(roi.x_min)}
+              </div>
+
+              <div>
+                Y-Min: {formatCoordinate(roi.y_min)}
+              </div>
+
+              <div>
+                X-Max: {formatCoordinate(roi.x_max)}
+              </div>
+
+              <div>
+                Y-Max: {formatCoordinate(roi.y_max)}
+              </div>
             </div>
-            <div className="roi-timestamp">
+
+            <div
+              style={{
+                marginTop: "14px",
+                fontSize: "12px",
+                color: "#666",
+              }}
+            >
               {formatTimestamp(roi.timestamp)}
             </div>
           </div>
         ))
       ) : (
-        <div className="empty-list">
-          <p>No face detections yet</p>
-          <p style={{ fontSize: '0.9em', marginTop: '10px' }}>
-            Start the stream to begin detecting faces
+        <div
+          style={{
+            height: "240px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            color: "#666",
+          }}
+        >
+          <p
+            style={{
+              fontSize: "15px",
+              fontWeight: "600",
+            }}
+          >
+            No detections yet
+          </p>
+
+          <p
+            style={{
+              marginTop: "10px",
+              fontSize: "13px",
+            }}
+          >
+            Start monitoring to begin detection
           </p>
         </div>
       )}

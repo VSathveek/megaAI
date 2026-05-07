@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, Float, DateTime
 from datetime import datetime
+from datetime import datetime, timezone
 
 # Use aiosqlite for async SQLite support
 DATABASE_URL = "sqlite+aiosqlite:///./mega_ai.db"
@@ -12,7 +13,6 @@ engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     future=True,
-    connect_args={"check_same_thread": False},
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -31,7 +31,7 @@ class FaceDetectionROI(Base):
     y_min = Column(Float, nullable=False)
     x_max = Column(Float, nullable=False)
     y_max = Column(Float, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 async def get_db():

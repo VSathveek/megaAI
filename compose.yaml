@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: mega_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /app/venv 
+    env_file:
+      - ./backend/.env
+
+  frontend:
+    build: ./frontend
+    container_name: mega_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules 
+    stdin_open: true
+    environment:
+      - CHOKIDAR_USEPOLLING=true 
+    depends_on:
+      - backend

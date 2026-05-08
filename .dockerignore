@@ -1,0 +1,6 @@
+**/node_modules
+**/venv
+**/.git
+setup.bat
+setup.sh
+README.md
